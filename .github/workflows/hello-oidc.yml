@@ -1,0 +1,38 @@
+name: hello-kube (OIDC)
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  run-hello-oidc:
+    runs-on: [self-hosted, arc]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          pip install "kubernetes" "requests"
+
+      - name: Get GitHub OIDC ID token (audience=kubernetes)
+        id: oidc
+        run: |
+          TOK_URL="${ACTIONS_ID_TOKEN_REQUEST_URL}?audience=kubernetes"
+          OIDC_JWT=$(curl -sSf -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$TOK_URL" \
+            | python -c "import sys, json; print(json.load(sys.stdin)['value'])")
+          echo "token=$OIDC_JWT" >> "$GITHUB_OUTPUT"
+
+      - name: Run hello-kube with Bearer token (no ServiceAccount)
+        env:
+          KUBE_API_HOST: "https://kubernetes.default.svc"
+        run: |
+          python hello_kube.py \
+            --host "$KUBE_API_HOST" \
+            --bearer-token "${{ steps.oidc.outputs.token }}" \
+            --insecure-skip-tls-verify
